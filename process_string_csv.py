@@ -10,8 +10,60 @@ show_fail_key = True
 show_fail_key_with_file = True
 show_swift_files = False
 show_processing_files = False
+show_underscore_to_camel = False
+show_underscore_position = False
+show_i18n_enum = False
+def convert_underscore_to_camel(underscore_str = ""):
+    position = 0
+    orgstr = underscore_str
+    while position >= 0:
+        underscore_pos = underscore_str.find('_', position)
+        if(underscore_pos >= 0):
+            underscore_key = underscore_str[underscore_pos+1:underscore_pos+2]
+            if show_underscore_position:
+                print(underscore_key)
+            underscore_str = underscore_str.replace("_" + underscore_key, underscore_key.upper())
+        position = underscore_pos
+    
+    if show_underscore_to_camel:    
+        print(f'Convert {orgstr} to i18n.{underscore_str}')
+    return underscore_str
 
-def get_string_id_dictionary(fname):
+I18N_VAR_DECLA = "internal static let "
+
+def find_char_pos_with_space(str_to_find : str, char_to_mark : str,  offset : int):
+    pos1 = str_to_find.find(" ", offset)
+    pos2 = str_to_find.find(char_to_mark, offset)
+    if (pos1 < 0):
+        return pos2
+    if (pos2 < 0):
+        return pos1
+    if pos2 < pos1:
+        return pos2
+    else:
+        return pos1
+
+# Read i18n file and generate string key to enum dictionary
+def convert_underscore_to_camel_from_i18n(i18n_file):
+    i18ndict = {}
+    with open(i18n_file, "r") as i18nfile:
+        lines = i18nfile.readlines()
+        for oneline in lines:
+            if oneline.find(I18N_VAR_DECLA) >= 0:
+                equality_parts = oneline.split("=")
+                enum_parts = equality_parts[0].split(" ")
+                str_id_parts = equality_parts[1].split("\"")
+                for enum_name in reversed(enum_parts):
+                    if(enum_name.find(" ") < 0 and len(enum_name) > 0):
+                        break
+                for str_id_name in reversed(str_id_parts):
+                    if re.match(r'^\w+', str_id_name, re.M|re.I):
+                        break
+                i18ndict[str_id_name] = enum_name
+    return i18ndict
+
+
+def get_string_id_dictionary(fname, i18ndict = {}):
     id_dict = {}
     with open(fname, mode='r') as csv_file:
         csv_reader = csv.DictReader(csv_file)
@@ -26,8 +78,14 @@ def get_string_id_dictionary(fname):
                 #print(f'#### new id:{row["String_Key"]} old id:{row["iOS_ID"]} value:{row["String_en_US"]}.')
                 if row["iOS_ID"]:
                     id_dict[row["iOS_ID"]] = row["String_Key"]
+                    id_dict[row["iOS_ID"] + "_UNDERSCORE_VAR_TO_CAMEL"] = i18ndict[row["String_Key"]]
+                    if show_i18n_enum:
+                        print(f'Strin {row["iOS_ID"]} convert to {row["String_Key"]} and i18n enum {i18ndict[row["String_Key"]]}')
                 if row["iOS_ID1"]:
                     id_dict[row["iOS_ID1"]] = row["String_Key"]
+                    id_dict[row["iOS_ID1"] + "_UNDERSCORE_VAR_TO_CAMEL"] = i18ndict[row["String_Key"]]
+                    if show_i18n_enum:
+                        print(f'Strin {row["iOS_ID1"]} convert to {row["String_Key"]} and i18n enum {i18ndict[row["String_Key"]]}')
             elif row["String_en_US"]:
                 id_dict[row["String_en_US"]] = row["String_Key"]
             elif not row["String_Key"]:
@@ -54,6 +112,25 @@ def find_ns_string_key_list(nsstring):
                 # and key_comma > key_position:
                 # and key_position + 1 < key_end:
                 keys.append(nsstring[key_position + 1:key_end])
+            begin = position + 5
+        else:
+            begin = position
+    return keys
+
+def find_ns_string_key_list_full_function(nsstring):
+    keys = []
+    begin = 0
+    position = 0
+    while begin >= 0:
+        position = nsstring.find("NSLocalizedString" ,begin)
+        if position >= 0:
+            key_comma = nsstring.find(",", position + 5)
+            key_position = nsstring.find("\"", position + 5)
+            key_end = nsstring.find(")", key_position + 1)
+            if key_position >= 0:
+                # and key_comma > key_position:
+                # and key_position + 1 < key_end:
+                keys.append(nsstring[position:key_end + 1])
             begin = position + 5
         else:
             begin = position
@@ -113,23 +190,25 @@ def get_nsstring_key_from_code(fname, key_dict):
             #else:
             #    print(f'#### Not string id for string {stringkey}');
 
-def get_nsstring_key_from_code_and_replace(fname, key_dict, replace_fname, logfile = "log.txt"):
+def get_nsstring_key_from_code_and_replace(fname, key_dict, replace_fname, fail_log_file = open("log.txt", "w")):
     sourcefile = open(fname, mode='r')
     targetfile = open(replace_fname, mode='w')
-    fail_log_file = open(logfile, mode='a')
+    #fail_log_file = open(logfile, mode='a')
     lines = sourcefile.readlines()
     for index, oneline in enumerate(lines):
         stringkeys = find_ns_string_key_list(oneline)
-        for stringkey in stringkeys: 
+        stringkeys_func = find_ns_string_key_list_full_function(oneline)
+        for keyind, stringkey in enumerate(stringkeys):
             if show_detail_message:
                 print(f'Find key:{stringkey} in line {oneline}')
             elif show_find_nsstring_key:
                 print(f'Find key:{stringkey}')
             try:
-                new_key = key_dict[stringkey]
+                replace_key = stringkeys_func[keyind]
+                new_key = "i18n." + key_dict[stringkey + "_UNDERSCORE_VAR_TO_CAMEL"]
                 if show_success_key:
-                    print (f'{show_success_key} {key_dict[stringkey]}')
-                oneline = oneline.replace(stringkey, new_key)
+                    print (f'{stringkey} to {new_key}')
+                oneline = oneline.replace(replace_key, new_key)
             except KeyError:
                 if show_fail_key:
                     if show_fail_key_with_file:
@@ -143,15 +222,17 @@ def get_nsstring_key_from_code_and_replace(fname, key_dict, replace_fname, logfi
     targetfile.writelines(lines)
     sourcefile.close()
     targetfile.close()
-    fail_log_file.close()
+    #fail_log_file.close()
 
 def fix_swift_file_in_filepath(src_dname, dst_dname, key_dict):
         fnames = get_swift_file(src_dname)
+        fail_log_file = open("log.txt", mode='w')
         for targetfile in fnames:
             replacefile = targetfile.replace(src_dname, dst_dname)
             if show_processing_files:
                 print(f'Processing file {onefile} ...')
-            get_nsstring_key_from_code_and_replace(targetfile, idd, replacefile)
+            get_nsstring_key_from_code_and_replace(targetfile, idd, replacefile, fail_log_file = fail_log_file)
+        fail_log_file.close()
 
 def get_swift_file(dname):
     fnames = []
@@ -172,7 +253,8 @@ if __name__ == "__main__" :
     #print('Argument(s) passed: {}'.format(str(sys.argv)))
 
 
-    idd = get_string_id_dictionary(sys.argv[1])
+    i18ndict = convert_underscore_to_camel_from_i18n("i18n.swift")
+    idd = get_string_id_dictionary(sys.argv[1], i18ndict)
     if len(sys.argv) > 3:
         src_dname = sys.argv[2]
         dst_dname = sys.argv[3]
