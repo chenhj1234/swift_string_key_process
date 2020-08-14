@@ -13,6 +13,9 @@ show_processing_files = False
 show_underscore_to_camel = False
 show_underscore_position = False
 show_i18n_enum = False
+show_fail_qmiix_str_key = False
+show_qmiix_const_to_i18n = False
+
 def convert_underscore_to_camel(underscore_str = ""):
     position = 0
     orgstr = underscore_str
@@ -43,6 +46,20 @@ def find_char_pos_with_space(str_to_find : str, char_to_mark : str,  offset : in
     else:
         return pos1
 
+def get_var_name_and_value(line = "", decla_str = ""):
+    if line.find(decla_str) >= 0:
+        equality_parts = line.split("=")
+        enum_parts = equality_parts[0].split(" ")
+        str_id_parts = equality_parts[1].split("\"")
+        for enum_name in reversed(enum_parts):
+            if(enum_name.find(" ") < 0 and len(enum_name) > 0):
+                break
+        for str_id_name in reversed(str_id_parts):
+            if re.match(r'^\w+', str_id_name, re.M|re.I):
+                break
+        return enum_name, str_id_name
+
+
 # Read i18n file and generate string key to enum dictionary
 def convert_underscore_to_camel_from_i18n(i18n_file):
     i18ndict = {}
@@ -50,15 +67,16 @@ def convert_underscore_to_camel_from_i18n(i18n_file):
         lines = i18nfile.readlines()
         for oneline in lines:
             if oneline.find(I18N_VAR_DECLA) >= 0:
-                equality_parts = oneline.split("=")
-                enum_parts = equality_parts[0].split(" ")
-                str_id_parts = equality_parts[1].split("\"")
-                for enum_name in reversed(enum_parts):
-                    if(enum_name.find(" ") < 0 and len(enum_name) > 0):
-                        break
-                for str_id_name in reversed(str_id_parts):
-                    if re.match(r'^\w+', str_id_name, re.M|re.I):
-                        break
+                enum_name, str_id_name = get_var_name_and_value(oneline, I18N_VAR_DECLA)
+                #equality_parts = oneline.split("=")
+                #enum_parts = equality_parts[0].split(" ")
+                #str_id_parts = equality_parts[1].split("\"")
+                #for enum_name in reversed(enum_parts):
+                #    if(enum_name.find(" ") < 0 and len(enum_name) > 0):
+                #        break
+                #for str_id_name in reversed(str_id_parts):
+                #    if re.match(r'^\w+', str_id_name, re.M|re.I):
+                #        break
                 i18ndict[str_id_name] = enum_name
     return i18ndict
 
@@ -74,7 +92,7 @@ def get_string_id_dictionary(fname, i18ndict = {}):
                 # print(f'Column names are {line_count}')
                 line_count += 1
             # print(f'\t{row["name"]} works in the {row["department"]} department, and was born in {row["birthday month"]}.')
-            if row["iOS_ID"] or row["iOS_ID1"]:
+            if row["iOS_ID"] or row["iOS_ID1"] or row["String_en_US"]:
                 #print(f'#### new id:{row["String_Key"]} old id:{row["iOS_ID"]} value:{row["String_en_US"]}.')
                 if row["iOS_ID"]:
                     id_dict[row["iOS_ID"]] = row["String_Key"]
@@ -86,8 +104,9 @@ def get_string_id_dictionary(fname, i18ndict = {}):
                     id_dict[row["iOS_ID1"] + "_UNDERSCORE_VAR_TO_CAMEL"] = i18ndict[row["String_Key"]]
                     if show_i18n_enum:
                         print(f'Strin {row["iOS_ID1"]} convert to {row["String_Key"]} and i18n enum {i18ndict[row["String_Key"]]}')
-            elif row["String_en_US"]:
-                id_dict[row["String_en_US"]] = row["String_Key"]
+                if row["String_en_US"]:
+                    id_dict[row["String_en_US"]] = row["String_Key"]
+                    id_dict[row["String_en_US"] + "_UNDERSCORE_VAR_TO_CAMEL"] = i18ndict[row["String_Key"]]
             elif not row["String_Key"]:
                 print(f'**** new id:{row["String_Key"]} old id:{row["iOS_ID"]} value:{row["String_en_US"]}.')
             else:
@@ -100,22 +119,26 @@ def get_string_id_dictionary(fname, i18ndict = {}):
 
 def find_ns_string_key_list(nsstring):
     keys = []
+    funckeys = []
     begin = 0
     position = 0
     while begin >= 0:
         position = nsstring.find("NSLocalizedString" ,begin)
         if position >= 0:
-            key_comma = nsstring.find(",", position + 5)
-            key_position = nsstring.find("\"", position + 5)
-            key_end = nsstring.find("\"", key_position + 1)
-            if key_position >= 0:
-                # and key_comma > key_position:
-                # and key_position + 1 < key_end:
-                keys.append(nsstring[key_position + 1:key_end])
+            if nsstring.find("self,", position) < 0:
+                key_comma = nsstring.find(",", position + 5)
+                key_position = nsstring.find("\"", position + 5)
+                key_end = nsstring.find("\"", key_position + 1)
+                full_key_end = nsstring.find(")", key_position + 1)
+                if key_position >= 0:
+                    # and key_comma > key_position:
+                    # and key_position + 1 < key_end:
+                    keys.append(nsstring[key_position + 1:key_end])
+                    funckeys.append(nsstring[position:full_key_end + 1])
             begin = position + 5
         else:
             begin = position
-    return keys
+    return keys, funckeys
 
 def find_ns_string_key_list_full_function(nsstring):
     keys = []
@@ -124,13 +147,14 @@ def find_ns_string_key_list_full_function(nsstring):
     while begin >= 0:
         position = nsstring.find("NSLocalizedString" ,begin)
         if position >= 0:
-            key_comma = nsstring.find(",", position + 5)
-            key_position = nsstring.find("\"", position + 5)
-            key_end = nsstring.find(")", key_position + 1)
-            if key_position >= 0:
-                # and key_comma > key_position:
-                # and key_position + 1 < key_end:
-                keys.append(nsstring[position:key_end + 1])
+            if nsstring.find("self,", position) < 0:
+                key_comma = nsstring.find(",", position + 5)
+                key_position = nsstring.find("\"", position + 5)
+                key_end = nsstring.find(")", key_position + 1)
+                if key_position >= 0:
+                    # and key_comma > key_position:
+                    # and key_position + 1 < key_end:
+                    keys.append(nsstring[position:key_end + 1])
             begin = position + 5
         else:
             begin = position
@@ -148,7 +172,7 @@ def get_nsstring_key_list_from_code(fname, key_dict):
     sourcefile = open(fname, mode='r')
     lines = sourcefile.readlines()
     for oneline in lines:
-        stringkeys = find_ns_string_key_list(oneline)
+        stringkeys, fullkeys = find_ns_string_key_list(oneline)
         for stringkey in stringkeys: 
             if show_detail_message:
                 print(f'Find key:{stringkey} in line {oneline}')
@@ -196,8 +220,8 @@ def get_nsstring_key_from_code_and_replace(fname, key_dict, replace_fname, fail_
     #fail_log_file = open(logfile, mode='a')
     lines = sourcefile.readlines()
     for index, oneline in enumerate(lines):
-        stringkeys = find_ns_string_key_list(oneline)
-        stringkeys_func = find_ns_string_key_list_full_function(oneline)
+        stringkeys, stringkeys_func = find_ns_string_key_list(oneline)
+        # stringkeys_func = find_ns_string_key_list_full_function(oneline)
         for keyind, stringkey in enumerate(stringkeys):
             if show_detail_message:
                 print(f'Find key:{stringkey} in line {oneline}')
@@ -212,11 +236,11 @@ def get_nsstring_key_from_code_and_replace(fname, key_dict, replace_fname, fail_
             except KeyError:
                 if show_fail_key:
                     if show_fail_key_with_file:
-                        print (f'{stringkey} not exist in file {fname}')
-                        print (f'{stringkey} not exist in file {fname}', file = fail_log_file)
+                        print (f'{stringkey} not exist in file {fname} line {index}')
+                        print (f'{stringkey} not exist in file {fname} line {index}', file = fail_log_file)
                     else:
                         print (f'{stringkey} not exist')
-                        fail_log_file.write(f'{stringkey} not exist\n')
+                        print (f'{stringkey} not exist', file = fail_log_file)
 
         lines[index] = oneline
     targetfile.writelines(lines)
@@ -245,6 +269,35 @@ def get_swift_file(dname):
                 fnames.append(fpath)
     return fnames
 
+QMIIX_STR_DECLA = "static let"
+
+def fix_QMIIX_String_class(const_file = "QMConstants.swift", key_dict = {}, fail_log_file = open("miix_str_error.log", "w")):
+    class_find_status = "not found"
+    with open(const_file, "r") as miix_const:
+        constlines = miix_const.readlines()
+        miix_const.close()
+        for index, constline in enumerate(constlines):
+            if constline.find("QMIIX_String") >= 0:
+                class_find_status = "found"
+            elif class_find_status == "found" and constline.find("}") >= 0:
+                class_find_status = "finished"
+            if class_find_status == "found" and constline.find(QMIIX_STR_DECLA) >= 0:
+                varname, varvalue = get_var_name_and_value(constline, QMIIX_STR_DECLA)
+                try:
+                    i18nstr = key_dict[varvalue]
+                    i18ndecstr = key_dict[varvalue + "_UNDERSCORE_VAR_TO_CAMEL"]
+                    constlines[index] = constline.replace("\"" + varvalue + "\"" , "i18n." + i18ndecstr)
+                    if show_qmiix_const_to_i18n:
+                        print(f'Find {varvalue} for {i18nstr} and {i18ndecstr}')
+                except KeyError:
+                    if show_fail_qmiix_str_key:
+                        print(f'{varvalue} not found in line {index} content {constline}')
+                    print(f'{varvalue} not found in line {index}', file = fail_log_file)
+        with open(const_file, "w") as const_write:
+            const_write.writelines(constlines)
+            const_write.close()
+    fail_log_file.close()
+
 if __name__ == "__main__" :
     #print('Number of arguments: {}'.format(len(sys.argv)))
     if (len(sys.argv) < 2):
@@ -253,14 +306,18 @@ if __name__ == "__main__" :
     #print('Argument(s) passed: {}'.format(str(sys.argv)))
 
 
-    i18ndict = convert_underscore_to_camel_from_i18n("i18n.swift")
-    idd = get_string_id_dictionary(sys.argv[1], i18ndict)
+    #/Users/admin/projects/qmiix/qmiix-ios-fixstr/Qmiix/QmiixConstants/QMConstants.swift
     if len(sys.argv) > 3:
         src_dname = sys.argv[2]
         dst_dname = sys.argv[3]
+        i18ndict = convert_underscore_to_camel_from_i18n(src_dname + "/SwiftGenFiles/outputs/i18n.swift")
+        idd = get_string_id_dictionary(sys.argv[1], i18ndict)
         fix_swift_file_in_filepath(src_dname, dst_dname, idd)
+        fix_QMIIX_String_class("/Users/admin/projects/qmiix/qmiix-ios-fixstr/Qmiix/QmiixConstants/QMConstants.swift", idd)
     elif len(sys.argv) > 2:
         targetfile = sys.argv[2]
+        i18ndict = convert_underscore_to_camel_from_i18n("i18n.swift")
+        idd = get_string_id_dictionary(sys.argv[1], i18ndict)
         replacefile = "new_" + targetfile
         get_nsstring_key_from_code_and_replace(targetfile, idd, replacefile)
         #get_nsstring_key_list_from_code(targetfile, idd)
