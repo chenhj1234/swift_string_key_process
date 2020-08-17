@@ -79,7 +79,9 @@ def convert_underscore_to_camel_from_i18n(i18n_file):
                 #        break
                 i18ndict[str_id_name] = enum_name
     return i18ndict
-
+IOS_KEY_STR = "_IOS_KEY_20200814"
+GENERAL_KEY_STR = "_GENERAL_STRING_KEY_20200814"
+I18N_KEY_STR = "_UNDERSCORE_VAR_TO_CAMEL"
 
 def get_string_id_dictionary(fname, i18ndict = {}):
     id_dict = {}
@@ -96,17 +98,23 @@ def get_string_id_dictionary(fname, i18ndict = {}):
                 #print(f'#### new id:{row["String_Key"]} old id:{row["iOS_ID"]} value:{row["String_en_US"]}.')
                 if row["iOS_ID"]:
                     id_dict[row["iOS_ID"]] = row["String_Key"]
-                    id_dict[row["iOS_ID"] + "_UNDERSCORE_VAR_TO_CAMEL"] = i18ndict[row["String_Key"]]
+                    id_dict[row["iOS_ID"] + I18N_KEY_STR] = i18ndict[row["String_Key"]]
+                    # Key for distincting ios key and geenral string key
+                    id_dict[row["iOS_ID"] + IOS_KEY_STR] = i18ndict[row["String_Key"]]
                     if show_i18n_enum:
                         print(f'Strin {row["iOS_ID"]} convert to {row["String_Key"]} and i18n enum {i18ndict[row["String_Key"]]}')
                 if row["iOS_ID1"]:
                     id_dict[row["iOS_ID1"]] = row["String_Key"]
-                    id_dict[row["iOS_ID1"] + "_UNDERSCORE_VAR_TO_CAMEL"] = i18ndict[row["String_Key"]]
+                    id_dict[row["iOS_ID1"] + I18N_KEY_STR] = i18ndict[row["String_Key"]]
+                    # Key for distincting ios key and geenral string key
+                    id_dict[row["iOS_ID1"] + IOS_KEY_STR] = i18ndict[row["String_Key"]]
                     if show_i18n_enum:
                         print(f'Strin {row["iOS_ID1"]} convert to {row["String_Key"]} and i18n enum {i18ndict[row["String_Key"]]}')
                 if row["String_en_US"]:
                     id_dict[row["String_en_US"]] = row["String_Key"]
-                    id_dict[row["String_en_US"] + "_UNDERSCORE_VAR_TO_CAMEL"] = i18ndict[row["String_Key"]]
+                    id_dict[row["String_en_US"] + I18N_KEY_STR] = i18ndict[row["String_Key"]]
+                    # Key for distincting ios key and geenral string key
+                    id_dict[row["String_en_US"] + GENERAL_KEY_STR] = i18ndict[row["String_Key"]]
             elif not row["String_Key"]:
                 print(f'**** new id:{row["String_Key"]} old id:{row["iOS_ID"]} value:{row["String_en_US"]}.')
             else:
@@ -213,8 +221,22 @@ def get_nsstring_key_from_code(fname, key_dict):
             #    print(f'Find new string id {key_dict[stringkey]}')
             #else:
             #    print(f'#### Not string id for string {stringkey}');
+show_found_ios_key = False
+show_found_string_key = False
+def search_keys_in_line(linestr : str, key_dict : dict):
+    found_ios_key = []
+    fount_str_key = []
+    for strkey in key_dict:
+        if strkey.find(IOS_KEY_STR) < 0 and strkey.find(GENERAL_KEY_STR) < 0 and linestr.find(strkey) >= 0 and linestr.find("\"" + strkey + "\"") >= 0:
+            try:
+                verifystr = key_dict[strkey + IOS_KEY_STR]
+                found_ios_key.append(strkey)
+            except KeyError:
+                fount_str_key.append(strkey)
+    return found_ios_key , fount_str_key
 
-def get_nsstring_key_from_code_and_replace(fname, key_dict, replace_fname, fail_log_file = open("log.txt", "w")):
+
+def get_nsstring_key_from_code_and_replace(fname, key_dict, replace_fname, fail_log_file = open("log.txt", "w"), ios_key_log_file = open("ios_key_log.txt", "w"), str_key_log_file = open("str_key_log.txt", "w")):
     sourcefile = open(fname, mode='r')
     targetfile = open(replace_fname, mode='w')
     #fail_log_file = open(logfile, mode='a')
@@ -229,7 +251,7 @@ def get_nsstring_key_from_code_and_replace(fname, key_dict, replace_fname, fail_
                 print(f'Find key:{stringkey}')
             try:
                 replace_key = stringkeys_func[keyind]
-                new_key = "i18n." + key_dict[stringkey + "_UNDERSCORE_VAR_TO_CAMEL"]
+                new_key = "i18n." + key_dict[stringkey + I18N_KEY_STR]
                 if show_success_key:
                     print (f'{stringkey} to {new_key}')
                 oneline = oneline.replace(replace_key, new_key)
@@ -241,6 +263,20 @@ def get_nsstring_key_from_code_and_replace(fname, key_dict, replace_fname, fail_
                     else:
                         print (f'{stringkey} not exist')
                         print (f'{stringkey} not exist', file = fail_log_file)
+        found_ios_key_list , found_str_key_list = search_keys_in_line(oneline, key_dict)
+        if len(found_ios_key_list) > 0 and fname.find("i18n.swift") < 0 and fname.find("QMConstants.swift") < 0:
+            if show_found_ios_key:
+                print(f'Found {found_ios_key_list} in file {fname}')
+            print(f'Found {found_ios_key_list} in file {fname}', file = ios_key_log_file)
+            for ioskey in found_ios_key_list:
+                keystr = "\"" + ioskey + "\""
+                new_key = "i18n." + key_dict[ioskey + I18N_KEY_STR]
+                oneline = oneline.replace(keystr, new_key)
+
+        if len(found_str_key_list) > 0 and fname.find("i18n.swift") < 0 and fname.find("QMConstants.swift") < 0:
+            if show_found_string_key:
+                print(f'Found {found_str_key_list} in file {fname}')
+            print(f'Found {found_str_key_list} in file {fname} line {index}', file = str_key_log_file)
 
         lines[index] = oneline
     targetfile.writelines(lines)
@@ -251,11 +287,13 @@ def get_nsstring_key_from_code_and_replace(fname, key_dict, replace_fname, fail_
 def fix_swift_file_in_filepath(src_dname, dst_dname, key_dict):
         fnames = get_swift_file(src_dname)
         fail_log_file = open("log.txt", mode='w')
+        ios_key_log_file = open("ios_key.txt", "w")
+        str_key_log_file = open("str_key.txt", "w")
         for targetfile in fnames:
             replacefile = targetfile.replace(src_dname, dst_dname)
             if show_processing_files:
                 print(f'Processing file {onefile} ...')
-            get_nsstring_key_from_code_and_replace(targetfile, idd, replacefile, fail_log_file = fail_log_file)
+            get_nsstring_key_from_code_and_replace(targetfile, idd, replacefile, fail_log_file = fail_log_file, ios_key_log_file = ios_key_log_file, str_key_log_file = str_key_log_file)
         fail_log_file.close()
 
 def get_swift_file(dname):
@@ -285,7 +323,7 @@ def fix_QMIIX_String_class(const_file = "QMConstants.swift", key_dict = {}, fail
                 varname, varvalue = get_var_name_and_value(constline, QMIIX_STR_DECLA)
                 try:
                     i18nstr = key_dict[varvalue]
-                    i18ndecstr = key_dict[varvalue + "_UNDERSCORE_VAR_TO_CAMEL"]
+                    i18ndecstr = key_dict[varvalue + I18N_KEY_STR]
                     constlines[index] = constline.replace("\"" + varvalue + "\"" , "i18n." + i18ndecstr)
                     if show_qmiix_const_to_i18n:
                         print(f'Find {varvalue} for {i18nstr} and {i18ndecstr}')
